@@ -223,7 +223,7 @@ class Match:
 
             # Have each team produce actions (in parallel)
             if t1_type == 'image':
-                team1_actions_delayed = self._r(team1.act)(team1_state, team1_images)
+                team1_actions_delayed = self._r(team1.act)(team1_state, team1_images, soccer_state['ball'])
             else:
                 team1_actions_delayed = self._r(team1.act)(team1_state, team2_state, soccer_state)
 

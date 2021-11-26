@@ -1,4 +1,4 @@
-
+import numpy as np
 class Team:
     agent_type = 'image'
 
@@ -26,7 +26,7 @@ class Team:
         self.team, self.num_players = team, num_players
         return ['tux'] * num_players
 
-    def act(self, player_state, player_image):
+    def act(self, player_state, player_image, puck_location):
         """
         This function is called once per timestep. You're given a list of player_states and images.
 
@@ -62,4 +62,30 @@ class Team:
                  steer:        float -1..1 steering angle
         """
         # TODO: Change me. I'm just cruising straight
-        return [dict(acceleration=1, steer=0)] * self.num_players
+        actions = []
+        for i in range(self.num_players):
+          steer_gain=2
+          skid_thresh = 0.5
+          target_vel = 25
+          current_vel = player_state[i]['kart']['velocity'][1]
+          action = {}
+
+          steer_coordinate = 0
+
+          steer_angle = steer_gain * puck_location['location'][steer_coordinate]
+
+    # Compute accelerate
+          action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
+
+    # Compute steering
+          action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
+
+    # Compute skidding
+          if abs(steer_angle) > skid_thresh:
+            action['drift'] = True
+          else:
+            action['drift'] = False
+
+          action['nitro'] = True
+          actions.append(action)
+        return actions
