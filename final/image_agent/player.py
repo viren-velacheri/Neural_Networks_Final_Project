@@ -66,14 +66,18 @@ class Team:
         for i in range(self.num_players):
           steer_gain=2
           skid_thresh = 0.5
-          target_vel = 25
+          target_vel = 10
           current_vel = player_state[i]['kart']['velocity'][1]
           action = {}
 
           steer_coordinate = 0
 
-          steer_angle = steer_gain * puck_location['location'][steer_coordinate]
+          # print("PUCK LOCATION: " + str(puck_location['location']))
+          # print("PLAYER " + str(i) + " LOCATION: " + str(player_state[i]['kart']['location']))
+          # print("PLAYER " + str(i) + " FRONT: " + str(player_state[i]['kart']['front']))
 
+          steer_angle = steer_gain * (puck_location['location'][steer_coordinate] - player_state[i]['kart']['location'][steer_coordinate]) / 10
+          # print(puck_location['location'][steer_coordinate] - player_state[i]['kart']['location'][steer_coordinate])
     # Compute accelerate
           action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
 
@@ -81,10 +85,10 @@ class Team:
           action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
 
     # Compute skidding
-          if abs(steer_angle) > skid_thresh:
-            action['drift'] = True
-          else:
-            action['drift'] = False
+          # if abs(steer_angle) > skid_thresh:
+          #   action['drift'] = True
+          # else:
+          #   action['drift'] = False
 
           action['nitro'] = True
           actions.append(action)
