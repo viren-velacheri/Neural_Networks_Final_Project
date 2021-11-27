@@ -9,6 +9,8 @@ class Team:
         """
         self.team = None
         self.num_players = None
+        self.last_rescue = 0
+        self.t = 0
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -66,30 +68,42 @@ class Team:
         for i in range(self.num_players):
           steer_gain=2
           skid_thresh = 0.5
-          target_vel = 10
-          current_vel = player_state[i]['kart']['velocity'][1]
+          target_vel = 25
+          current_vel = np.linalg.norm(player_state[i]['kart']['velocity'])
           action = {}
 
-          steer_coordinate = 0
+          if current_vel <= 1.0 and self.t - self.last_rescue > 30:
+            action['rescue'] = True
+            self.last_rescue = self.t
 
-          # print("PUCK LOCATION: " + str(puck_location['location']))
-          # print("PLAYER " + str(i) + " LOCATION: " + str(player_state[i]['kart']['location']))
-          # print("PLAYER " + str(i) + " FRONT: " + str(player_state[i]['kart']['front']))
+          # normalize location
+          proj = np.array(player_state[i]['camera']['projection']).T
+          view = np.array(player_state[i]['camera']['view']).T
+          aim_point_world = puck_location['location']
+          p = proj @ view @ np.array(list(aim_point_world) + [1])
+          aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+          # print(aim_point)
+          steer_angle = steer_gain * aim_point[0]
 
-          steer_angle = steer_gain * (puck_location['location'][steer_coordinate] - player_state[i]['kart']['location'][steer_coordinate]) / 10
-          # print(puck_location['location'][steer_coordinate] - player_state[i]['kart']['location'][steer_coordinate])
     # Compute accelerate
+          # if current_vel <= 1.3:
+          #   action['brake'] = True
+          #   current_vel = float('inf')
+          #   steer_angle = 1
+          #   print(aim_point)
+
           action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
 
     # Compute steering
           action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
 
     # Compute skidding
-          # if abs(steer_angle) > skid_thresh:
-          #   action['drift'] = True
-          # else:
-          #   action['drift'] = False
+          if abs(steer_angle) > skid_thresh:
+            action['drift'] = True
+          else:
+            action['drift'] = False
 
           action['nitro'] = True
           actions.append(action)
+        self.t += 1
         return actions
