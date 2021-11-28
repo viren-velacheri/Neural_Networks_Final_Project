@@ -246,6 +246,32 @@ class Match:
                 actions.append(a1)
                 actions.append(a2)
 
+            for i in range(len(team1_images)):
+                img = team1_images[i]
+                
+                from PIL import Image, ImageDraw
+                image = Image.fromarray(img)
+                
+                # # normalize location
+                proj = np.array(team1_state[i]['camera']['projection']).T
+                view = np.array(team1_state[i]['camera']['view']).T
+                aim_point_world = soccer_state['ball']['location']
+                p = proj @ view @ np.array(list(aim_point_world) + [1])
+                aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+                aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
+                aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
+                
+                draw = ImageDraw.Draw(image)
+                r = 20
+                leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
+                rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
+                twoPointList = [leftUpPoint, rightDownPoint]
+                draw.ellipse(twoPointList, fill=(0, 0, 0, 0))
+
+                # print(image)
+                # Show the image
+                team1_images[i] = image
+
             if record_fn:
                 self._r(record_fn)(team1_state, team2_state, soccer_state=soccer_state, actions=actions,
                                    team1_images=team1_images, team2_images=team2_images)

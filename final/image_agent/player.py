@@ -9,8 +9,6 @@ class Team:
         """
         self.team = None
         self.num_players = None
-        self.last_rescue = 0
-        self.t = 0
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -26,6 +24,9 @@ class Team:
            TODO: feel free to edit or delete any of the code below
         """
         self.team, self.num_players = team, num_players
+        self.last_rescue = 0
+        self.t = 0
+        self.low_speeds = [0] * num_players
         return ['tux'] * num_players
 
     def act(self, player_state, player_image, puck_location):
@@ -72,9 +73,9 @@ class Team:
           current_vel = np.linalg.norm(player_state[i]['kart']['velocity'])
           action = {}
 
-          if current_vel <= 1.0 and self.t - self.last_rescue > 30:
-            action['rescue'] = True
-            self.last_rescue = self.t
+          # if current_vel <= 1.0 and self.t - self.last_rescue > 30:
+          #   action['rescue'] = True
+          #   self.last_rescue = self.t
 
           # normalize location
           proj = np.array(player_state[i]['camera']['projection']).T
@@ -82,8 +83,23 @@ class Team:
           aim_point_world = puck_location['location']
           p = proj @ view @ np.array(list(aim_point_world) + [1])
           aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
-          # print(aim_point)
+
           steer_angle = steer_gain * aim_point[0]
+          # print(current_vel)
+          # if current_vel <= 10.5:
+          #   self.low_speeds[i] += 1
+          # else:
+          #   self.low_speeds[i] = 0
+
+          # if aim_point[0] < -1 or aim_point[0] > 1 or aim_point[1] > 1 or aim_point[1] < -1:
+          #   action['brake'] = True
+          #   current_vel = float('inf')
+          #   steer_angle = -1 if steer_angle > 0 else 1
+
+          # if self.low_speeds[i] > 15 and self.low_speeds[i] < 120:
+          #   action['brake'] = True
+          #   current_vel = float('inf')
+          #   steer_angle = -1 if steer_angle > 0 else 1
 
     # Compute accelerate
           # if current_vel <= 1.3:
@@ -106,4 +122,5 @@ class Team:
           action['nitro'] = True
           actions.append(action)
         self.t += 1
+        # print(self.low_speeds)
         return actions
