@@ -27,6 +27,9 @@ class Team:
         self.last_rescue = 0
         self.t = 0
         self.low_speeds = [0] * num_players
+        self.puck_unknown = [0] * num_players
+        self.steer_point = [[0, 0] for i in range(num_players)]
+        self.rescue = [0] * num_players
         return ['tux'] * num_players
 
     def act(self, player_state, player_image, puck_location):
@@ -70,6 +73,7 @@ class Team:
           steer_gain=2
           skid_thresh = 0.5
           target_vel = 25
+          too_close_threshold = [0, 0.3]   
           current_vel = np.linalg.norm(player_state[i]['kart']['velocity'])
           action = {}
 
@@ -92,11 +96,22 @@ class Team:
             aim_point[0] = 0
             aim_point[1] = 1
           
+          
+          if (aim_point[1] > 0.5):
+            self.puck_unknown[i] += 1
+          else:
+            self.puck_unknown[i] = 0
+            self.steer_point[i] = aim_point
 
-          puck_unknown = aim_point[1] > 0.5
+            
+          if (abs(current_vel) < 1.0):
+            self.rescue[i] += 1
+          else:
+            self.rescue[i] = 0
 
           def chase_ball():
-            steer_angle = steer_gain * aim_point[0]
+            player_state[i]['kart']['state'] = 'chase_ball'
+            steer_angle = steer_gain * self.steer_point[i][0]
             # print(current_vel)
             # if current_vel <= 10.5:
             #   self.low_speeds[i] += 1
@@ -133,16 +148,29 @@ class Team:
 
             action['nitro'] = True
 
-          def back_up():
-            steer_angle = 0
+          def back_up(steer_angle = 0):
+            player_state[i]['kart']['state'] = 'back_up'
             action['acceleration'] = 0.0
-            action['steer'] = steer_angle
+            action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
             action['brake'] = True
 
-          if (puck_unknown):
+          def rescue():
+            player_state[i]['kart']['state'] = 'rescue'
+            action['rescue'] = True
+
+
+
+          if (self.puck_unknown[i] > 10):
             back_up()
           else:
-            chase_ball()
+            if (self.steer_point[i][1]) < too_close_threshold[0] and abs(self.steer_point[i][0]) < 3*abs(self.steer_point[i][1]):
+              chase_ball()
+            else:
+              back_up(-1 * self.steer_point[i][0])
+          
+          if (self.rescue[i] > 30):
+            rescue()
+
           actions.append(action)
           self.t += 1
         # print(self.low_speeds)

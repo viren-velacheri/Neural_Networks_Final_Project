@@ -268,6 +268,9 @@ class Match:
                   fill = (255, 255, 255, 255)
                   aim_point[0] = 0
                   aim_point[1] = 1
+                
+                if (team1_state[i]['kart']['state'] == 'chase_ball'):
+                  fill = (255, 0, 255, 255)
 
                 aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
                 aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
