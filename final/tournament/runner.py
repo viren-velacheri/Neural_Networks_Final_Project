@@ -269,7 +269,7 @@ class Match:
                   aim_point[0] = 0
                   aim_point[1] = 1
                 
-                if (team1_state[i]['kart']['state'] == 'chase_ball'):
+                if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
                   fill = (255, 0, 255, 255)
 
                 aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
@@ -321,6 +321,7 @@ if __name__ == '__main__':
     parser.add_argument('--ball_velocity', default=[0, 0], type=float, nargs=2, help="Initial xy velocity of ball")
     parser.add_argument('team1', help="Python module name or `AI` for AI players.")
     parser.add_argument('team2', help="Python module name or `AI` for AI players.")
+    parser.add_argument('--record_images', default=False)
     args = parser.parse_args()
 
     logging.basicConfig(level=environ.get('LOGLEVEL', 'WARNING').upper())
@@ -336,10 +337,10 @@ if __name__ == '__main__':
             recorder = recorder & utils.VideoRecorder(args.record_video)
 
         if args.record_state:
-            recorder = recorder & utils.StateRecorder(args.record_state)
+            recorder = recorder & utils.StateRecorder(args.record_state, record_images=args.record_images)
 
         # Start the match
-        match = Match(use_graphics=team1.agent_type == 'image' or team2.agent_type == 'image')
+        match = Match(use_graphics=args.record_images or team1.agent_type == 'image' or team2.agent_type == 'image')
         try:
             result = match.run(team1, team2, args.num_players, args.num_frames, max_score=args.max_score,
                                initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
