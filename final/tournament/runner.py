@@ -258,15 +258,27 @@ class Match:
                 aim_point_world = soccer_state['ball']['location']
                 p = proj @ view @ np.array(list(aim_point_world) + [1])
                 aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+
+                forward_vector = [team1_state[i]['kart']['front'][k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+                puck_vector = [aim_point_world[k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+                angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
+
+                fill = (0, 0, 0, 0)
+                if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
+                  fill = (255, 255, 255, 255)
+                  aim_point[0] = 0
+                  aim_point[1] = 1
+
                 aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
                 aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
                 
+
                 draw = ImageDraw.Draw(image)
-                r = 20
+                r = 10
                 leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
                 rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
                 twoPointList = [leftUpPoint, rightDownPoint]
-                draw.ellipse(twoPointList, fill=(0, 0, 0, 0))
+                draw.ellipse(twoPointList, fill=fill)
 
                 # print(image)
                 # Show the image

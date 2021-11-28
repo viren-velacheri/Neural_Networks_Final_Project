@@ -84,43 +84,66 @@ class Team:
           p = proj @ view @ np.array(list(aim_point_world) + [1])
           aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
 
-          steer_angle = steer_gain * aim_point[0]
-          # print(current_vel)
-          # if current_vel <= 10.5:
-          #   self.low_speeds[i] += 1
-          # else:
-          #   self.low_speeds[i] = 0
+          forward_vector = [player_state[i]['kart']['front'][k] - player_state[i]['kart']['location'][k] for k in range(3)]
+          puck_vector = [aim_point_world[k] - player_state[i]['kart']['location'][k] for k in range(3)]
+          angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
 
-          # if aim_point[0] < -1 or aim_point[0] > 1 or aim_point[1] > 1 or aim_point[1] < -1:
-          #   action['brake'] = True
-          #   current_vel = float('inf')
-          #   steer_angle = -1 if steer_angle > 0 else 1
+          if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
+            aim_point[0] = 0
+            aim_point[1] = 1
+          
 
-          # if self.low_speeds[i] > 15 and self.low_speeds[i] < 120:
-          #   action['brake'] = True
-          #   current_vel = float('inf')
-          #   steer_angle = -1 if steer_angle > 0 else 1
+          puck_unknown = aim_point[1] > 0.5
 
-    # Compute accelerate
-          # if current_vel <= 1.3:
-          #   action['brake'] = True
-          #   current_vel = float('inf')
-          #   steer_angle = 1
-          #   print(aim_point)
+          def chase_ball():
+            steer_angle = steer_gain * aim_point[0]
+            # print(current_vel)
+            # if current_vel <= 10.5:
+            #   self.low_speeds[i] += 1
+            # else:
+            #   self.low_speeds[i] = 0
 
-          action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
+            # if aim_point[0] < -1 or aim_point[0] > 1 or aim_point[1] > 1 or aim_point[1] < -1:
+            #   action['brake'] = True
+            #   current_vel = float('inf')
+            #   steer_angle = -1 if steer_angle > 0 else 1
 
-    # Compute steering
-          action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
+            # if self.low_speeds[i] > 15 and self.low_speeds[i] < 120:
+            #   action['brake'] = True
+            #   current_vel = float('inf')
+            #   steer_angle = -1 if steer_angle > 0 else 1
 
-    # Compute skidding
-          if abs(steer_angle) > skid_thresh:
-            action['drift'] = True
+            # Compute accelerate
+            # if current_vel <= 1.3:
+            #   action['brake'] = True
+            #   current_vel = float('inf')
+            #   steer_angle = 1
+            #   print(aim_point)
+
+            action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
+
+            # Compute steering
+            action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
+
+            # Compute skidding
+            if abs(steer_angle) > skid_thresh:
+              action['drift'] = True
+            else:
+              action['drift'] = False
+
+            action['nitro'] = True
+
+          def back_up():
+            steer_angle = 0
+            action['acceleration'] = 0.0
+            action['steer'] = steer_angle
+            action['brake'] = True
+
+          if (puck_unknown):
+            back_up()
           else:
-            action['drift'] = False
-
-          action['nitro'] = True
+            chase_ball()
           actions.append(action)
-        self.t += 1
+          self.t += 1
         # print(self.low_speeds)
         return actions
