@@ -285,7 +285,8 @@ class Match:
 
                 # print(image)
                 # Show the image
-                team1_images[i] = image
+                if (not args.record_images):
+                  team1_images[i] = image
 
             if record_fn:
                 self._r(record_fn)(team1_state, team2_state, soccer_state=soccer_state, actions=actions,
