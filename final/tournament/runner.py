@@ -1,6 +1,10 @@
 import logging
 import numpy as np
 from collections import namedtuple
+# import sys
+# sys.path.append('/image_agent')
+from image_agent.planner import load_model
+import torchvision.transforms.functional as TF
 
 TRACK_NAME = 'icy_soccer_field'
 MAX_FRAMES = 1000
@@ -9,6 +13,12 @@ TIMEOUT_STEP = 0.1  # seconds
 
 RunnerInfo = namedtuple('RunnerInfo', ['agent_type', 'error', 'total_act_time'])
 
+# def load_model():
+#     from torch import load
+#     from os import path
+#     r = Planner()
+#     r.load_state_dict(load(path.join(path.dirname(path.abspath(__file__)), 'planner.th'), map_location='cpu'))
+#     return r
 
 def to_native(o):
     # Super obnoxious way to hide pystk
@@ -207,7 +217,7 @@ class Match:
         state.update()
         state.set_ball_location((initial_ball_location[0], 1, initial_ball_location[1]),
                                 (initial_ball_velocity[0], 0, initial_ball_velocity[1]))
-
+        model = load_model().eval()
         for it in range(max_frames):
             logging.debug('iteration {} / {}'.format(it, MAX_FRAMES))
             state.update()
@@ -264,13 +274,16 @@ class Match:
                 angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
 
                 fill = (0, 0, 0, 0)
+                model_fill = (255, 255, 0, 255)
                 if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
                   fill = (255, 255, 255, 255)
+                  # model_fill = (0, 0, 0, 0)
                   aim_point[0] = 0
                   aim_point[1] = 1
                 
                 if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
                   fill = (255, 0, 255, 255)
+                  # model_fill = (0, 0, 0, 0)
 
                 aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
                 aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
@@ -283,6 +296,15 @@ class Match:
                 twoPointList = [leftUpPoint, rightDownPoint]
                 draw.ellipse(twoPointList, fill=fill)
 
+                model_aim_point = model(TF.to_tensor(img)[None]).squeeze(0).cpu().detach().numpy()
+                # draw = ImageDraw.Draw(image)
+                # r = 10
+                model_aim_point[0] = np.clip((model_aim_point[0] + 1) * 200, 0, 400)
+                model_aim_point[1] = np.clip((model_aim_point[1] + 1) * 150, 0, 300)
+                leftUpPoint = (model_aim_point[0]-r, model_aim_point[1]-r)
+                rightDownPoint = (model_aim_point[0]+r, model_aim_point[1]+r)
+                twoPointList = [leftUpPoint, rightDownPoint]
+                draw.ellipse(twoPointList, fill=model_fill)
                 # print(image)
                 # Show the image
                 if (not args.record_images):
