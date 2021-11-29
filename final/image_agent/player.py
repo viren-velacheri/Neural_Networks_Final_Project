@@ -1,4 +1,7 @@
 import numpy as np
+from image_agent.planner import load_model
+import torchvision.transforms.functional as TF
+import torch
 class Team:
     agent_type = 'image'
 
@@ -9,6 +12,8 @@ class Team:
         """
         self.team = None
         self.num_players = None
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self.model = load_model().eval().to(self.device)
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -95,7 +100,8 @@ class Team:
           if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
             aim_point[0] = 0
             aim_point[1] = 1
-          
+          # Model predicted aim point below
+          aim_point = self.model(TF.to_tensor(player_image[i])[None].to(self.device)).squeeze(0).cpu().detach().numpy()
           
           if (aim_point[1] > 0.5):
             self.puck_unknown[i] += 1

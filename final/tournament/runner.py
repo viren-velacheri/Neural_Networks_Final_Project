@@ -1,8 +1,6 @@
 import logging
 import numpy as np
 from collections import namedtuple
-# import sys
-# sys.path.append('/image_agent')
 from image_agent.planner import load_model
 import torchvision.transforms.functional as TF
 
@@ -13,12 +11,6 @@ TIMEOUT_STEP = 0.1  # seconds
 
 RunnerInfo = namedtuple('RunnerInfo', ['agent_type', 'error', 'total_act_time'])
 
-# def load_model():
-#     from torch import load
-#     from os import path
-#     r = Planner()
-#     r.load_state_dict(load(path.join(path.dirname(path.abspath(__file__)), 'planner.th'), map_location='cpu'))
-#     return r
 
 def to_native(o):
     # Super obnoxious way to hide pystk
@@ -61,23 +53,31 @@ class TeamRunner:
     _error = None
     _total_act_time = 0
 
-    def __init__(self, agent_dir):
+    def __init__(self, team_or_dir):
+        from pathlib import Path
         try:
-            import grader
+            from grader import grader
         except ImportError:
-            from . import grader
+            try:
+                from . import grader
+            except ImportError:
+                import grader
 
         self._error = None
-
+        self._team = None
         try:
-            assignment = grader.load_assignment(agent_dir)
-            if assignment is None:
-                self._error = 'Failed to load submission.'
+            if isinstance(team_or_dir, (str, Path)):
+                assignment = grader.load_assignment(team_or_dir)
+                if assignment is None:
+                    self._error = 'Failed to load submission.'
+                else:
+                    self._team = assignment.Team()
             else:
-                self._team = assignment.Team()
+                self._team = team_or_dir
         except Exception as e:
             self._error = 'Failed to load submission: {}'.format(str(e))
-        self.agent_type = self._team.agent_type
+        if hasattr(self, '_team') and self._team is not None:
+            self.agent_type = self._team.agent_type
 
     def new_match(self, team: int, num_players: int) -> list:
         self._total_act_time = 0
@@ -154,7 +154,9 @@ class Match:
 
     @staticmethod
     def _g(f):
-        # print('_g', f)
+        from .remote import ray
+        if ray is not None and isinstance(f, (ray.types.ObjectRef, ray._raylet.ObjectRef)):
+            return ray.get(f)
         return f
 
     def _check(self, team1, team2, where, n_iter, timeout_slack, timeout_step):
@@ -189,8 +191,8 @@ class Match:
         t1_cars = self._g(self._r(team1.new_match)(0, num_player)) or ['tux']
         t2_cars = self._g(self._r(team2.new_match)(1, num_player)) or ['tux']
 
-        t1_type, *_ = self._g(self._r(team1.info()))
-        t2_type, *_ = self._g(self._r(team2.info()))
+        t1_type, *_ = self._g(self._r(team1.info)())
+        t2_type, *_ = self._g(self._r(team2.info)())
 
         if t1_type == 'image' or t2_type == 'image':
             assert self._use_graphics, 'Need to use_graphics for image agents.'
@@ -238,7 +240,7 @@ class Match:
                 team1_actions_delayed = self._r(team1.act)(team1_state, team2_state, soccer_state)
 
             if t2_type == 'image':
-                team2_actions_delayed = self._r(team2.act)(team2_state, team2_images)
+                team2_actions_delayed = self._r(team2.act)(team2_state, team2_images, soccer_state['ball'])
             else:
                 team2_actions_delayed = self._r(team2.act)(team2_state, team1_state, soccer_state)
 
@@ -255,60 +257,60 @@ class Match:
                 a2 = team2_actions[i] if team2_actions is not None and i < len(team2_actions) else {}
                 actions.append(a1)
                 actions.append(a2)
-
-            for i in range(len(team1_images)):
-                img = team1_images[i]
+            # for i in range(len(team1_images)):
+            #     img = team1_images[i]
                 
-                from PIL import Image, ImageDraw
-                image = Image.fromarray(img)
+            #     from PIL import Image, ImageDraw
+            #     image = Image.fromarray(img)
                 
-                # # normalize location
-                proj = np.array(team1_state[i]['camera']['projection']).T
-                view = np.array(team1_state[i]['camera']['view']).T
-                aim_point_world = soccer_state['ball']['location']
-                p = proj @ view @ np.array(list(aim_point_world) + [1])
-                aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+            #     # # normalize location
+            #     proj = np.array(team1_state[i]['camera']['projection']).T
+            #     view = np.array(team1_state[i]['camera']['view']).T
+            #     aim_point_world = soccer_state['ball']['location']
+            #     p = proj @ view @ np.array(list(aim_point_world) + [1])
+            #     aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
 
-                forward_vector = [team1_state[i]['kart']['front'][k] - team1_state[i]['kart']['location'][k] for k in range(3)]
-                puck_vector = [aim_point_world[k] - team1_state[i]['kart']['location'][k] for k in range(3)]
-                angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
+            #     forward_vector = [team1_state[i]['kart']['front'][k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+            #     puck_vector = [aim_point_world[k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+            #     angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
 
-                fill = (0, 0, 0, 0)
-                model_fill = (255, 255, 0, 255)
-                if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
-                  fill = (255, 255, 255, 255)
-                  # model_fill = (0, 0, 0, 0)
-                  aim_point[0] = 0
-                  aim_point[1] = 1
+            #     fill = (0, 0, 0, 0)
+            #     model_fill = (255, 255, 0, 255)
+            #     if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
+            #       fill = (255, 255, 255, 255)
+            #       # model_fill = (0, 0, 0, 0)
+            #       aim_point[0] = 0
+            #       aim_point[1] = 1
                 
-                if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
-                  fill = (255, 0, 255, 255)
-                  # model_fill = (0, 0, 0, 0)
+            #     if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
+            #       fill = (255, 0, 255, 255)
+            #       # model_fill = (0, 0, 0, 0)
 
-                aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
-                aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
+            #     aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
+            #     aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
                 
 
-                draw = ImageDraw.Draw(image)
-                r = 10
-                leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
-                rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
-                twoPointList = [leftUpPoint, rightDownPoint]
-                draw.ellipse(twoPointList, fill=fill)
+            #     draw = ImageDraw.Draw(image)
+            #     r = 10
+            #     leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
+            #     rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
+            #     twoPointList = [leftUpPoint, rightDownPoint]
+            #     draw.ellipse(twoPointList, fill=fill)
 
-                model_aim_point = model(TF.to_tensor(img)[None]).squeeze(0).cpu().detach().numpy()
-                # draw = ImageDraw.Draw(image)
-                # r = 10
-                model_aim_point[0] = np.clip((model_aim_point[0] + 1) * 200, 0, 400)
-                model_aim_point[1] = np.clip((model_aim_point[1] + 1) * 150, 0, 300)
-                leftUpPoint = (model_aim_point[0]-r, model_aim_point[1]-r)
-                rightDownPoint = (model_aim_point[0]+r, model_aim_point[1]+r)
-                twoPointList = [leftUpPoint, rightDownPoint]
-                draw.ellipse(twoPointList, fill=model_fill)
-                # print(image)
-                # Show the image
-                if (not args.record_images):
-                  team1_images[i] = image
+            #     model_aim_point = model(TF.to_tensor(img)[None]).squeeze(0).cpu().detach().numpy()
+            #     # draw = ImageDraw.Draw(image)
+            #     # r = 10
+            #     model_aim_point[0] = np.clip((model_aim_point[0] + 1) * 200, 0, 400)
+            #     model_aim_point[1] = np.clip((model_aim_point[1] + 1) * 150, 0, 300)
+            #     leftUpPoint = (model_aim_point[0]-r, model_aim_point[1]-r)
+            #     rightDownPoint = (model_aim_point[0]+r, model_aim_point[1]+r)
+            #     twoPointList = [leftUpPoint, rightDownPoint]
+            #     draw.ellipse(twoPointList, fill=model_fill)
+            #     # print(image)
+            #     # Show the image
+            #     if (not args.record_images):
+            #       team1_images[i] = image
+
 
             if record_fn:
                 self._r(record_fn)(team1_state, team2_state, soccer_state=soccer_state, actions=actions,
@@ -336,7 +338,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="Play some Ice Hockey. List any number of players, odd players are in team 1, even players team 2.")
     parser.add_argument('-r', '--record_video', help="Do you want to record a video?")
     parser.add_argument('-s', '--record_state', help="Do you want to pickle the state?")
-    parser.add_argument('-f', '--num_frames', default=1000, type=int, help="How many steps should we play for?")
+    parser.add_argument('-f', '--num_frames', default=1200, type=int, help="How many steps should we play for?")
     parser.add_argument('-p', '--num_players', default=2, type=int, help="Number of players per team")
     parser.add_argument('-m', '--max_score', default=3, type=int, help="How many goal should we play to?")
     parser.add_argument('-j', '--parallel', type=int, help="How many parallel process to use?")
@@ -345,6 +347,7 @@ if __name__ == '__main__':
     parser.add_argument('team1', help="Python module name or `AI` for AI players.")
     parser.add_argument('team2', help="Python module name or `AI` for AI players.")
     parser.add_argument('--record_images', default=False)
+
     args = parser.parse_args()
 
     logging.basicConfig(level=environ.get('LOGLEVEL', 'WARNING').upper())
@@ -363,7 +366,7 @@ if __name__ == '__main__':
             recorder = recorder & utils.StateRecorder(args.record_state, record_images=args.record_images)
 
         # Start the match
-        match = Match(use_graphics=args.record_images or team1.agent_type == 'image' or team2.agent_type == 'image')
+        match = Match(use_graphics=args.record_images  or team1.agent_type == 'image' or team2.agent_type == 'image')
         try:
             result = match.run(team1, team2, args.num_players, args.num_frames, max_score=args.max_score,
                                initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
@@ -383,6 +386,8 @@ if __name__ == '__main__':
         # Create the teams
         team1 = AIRunner() if args.team1 == 'AI' else remote.RayTeamRunner.remote(args.team1)
         team2 = AIRunner() if args.team2 == 'AI' else remote.RayTeamRunner.remote(args.team2)
+        team1_type, *_ = team1.info() if args.team1 == 'AI' else remote.get(team1.info.remote())
+        team2_type, *_ = team2.info() if args.team2 == 'AI' else remote.get(team2.info.remote())
 
         # What should we record?
         assert args.record_state is None or args.record_video is None, "Cannot record both video and state in parallel mode"
@@ -399,7 +404,7 @@ if __name__ == '__main__':
                 recorder = remote.RayStateRecorder.remote(args.record_state.replace(ext, f'.{i}{ext}'))
 
             match = remote.RayMatch.remote(logging_level=getattr(logging, environ.get('LOGLEVEL', 'WARNING').upper()),
-                                           use_graphics=team1.agent_type == 'image' or team2.agent_type == 'image')
+                                           use_graphics=team1_type == 'image' or team2_type == 'image')
             result = match.run.remote(team1, team2, args.num_players, args.num_frames, max_score=args.max_score,
                                       initial_ball_location=args.ball_location,
                                       initial_ball_velocity=args.ball_velocity,
