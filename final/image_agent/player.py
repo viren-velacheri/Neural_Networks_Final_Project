@@ -32,10 +32,10 @@ class Team:
         self.last_rescue = 0
         self.t = 0
         self.low_speeds = [0] * num_players
-        self.puck_unknown = [0] * num_players
+        self.puck_unseen = [0] * num_players
         self.steer_point = [[0, 0] for i in range(num_players)]
         self.rescue = [0] * num_players
-        self.puck_height = 0.3693891763687134 #empirically discovered
+        self.puck_height = 0.3693891763687134 #empirically measured
         self.goal = None
         self.aim_points = [[0, 0] for i in range(num_players)]
         self.last_known_puck_location = np.array([0, 0, 0])
@@ -161,7 +161,6 @@ class Team:
         # cheated ground-truth puck world location
         true_puck_location = puck_location['location']
 
-
         # don't pass in puck_location to use model
         set_aim_points(puck_location = true_puck_location)
 
@@ -194,6 +193,8 @@ class Team:
           kart_to_puck_distance = np.linalg.norm(kart_to_puck)
           kart_to_puck_direction = kart_to_puck / kart_to_puck_distance
 
+          goal_to_kart_direction = (kart_center - self.goal) / np.linalg.norm((puck_center - self.goal))
+
           # # features of soccer 
           # puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
           # kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
@@ -207,9 +208,9 @@ class Team:
           # kart_to_goal_line_angle_difference = limit_period((kart_angle - kart_to_goal_line_angle)/np.pi)
           
           if (aim_point[1] > 0.5):
-            self.puck_unknown[i] += 1
+            self.puck_unseen[i] += 1
           else:
-            self.puck_unknown[i] = 0
+            self.puck_unseen[i] = 0
             self.steer_point[i] = aim_point
 
             
@@ -221,13 +222,14 @@ class Team:
           def attack_ball():
             def activation(distance, angle):
               abs_angle = abs(angle)
-              b = 0.5 
-              w1 = 0.05
-              w2 = 0.5
+              d = 1
+              adjusted_distance = distance - d
+              b = 0.1
+              w1 = 0.15
+              w2 = 0
               return b + w1 * distance + w2 * abs_angle
 
-            player_state[i]['kart']['state'] = 'attack_ball'
-            target = puck_center + goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(kart_to_puck_direction, goal_to_puck_direction))
+            target = puck_center + goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(goal_to_puck_direction, goal_to_puck_direction))
             target_coords = np.array([target[0], self.puck_height, target[1]])
 
             screen_target = world_to_screen(player_state[i]['camera'], target_coords)
@@ -242,6 +244,7 @@ class Team:
 
             player_state[i]['kart']['state'] = 'chase_ball'
             return
+
 
           def chase_point(target_point):
             steer_angle = steer_gain * target_point[0]
@@ -279,24 +282,25 @@ class Team:
             return
 
           def sleep():
-            action['acceleration'] = 0.0
+            action['acceleration'] = 0.01
             if (current_vel >= 0):
               action['brake'] = True
             else:
               action['brake'] = False
+            action['rescue'] = False
             
             player_state[i]['kart']['state'] = 'sleep'
             return
 
-          if (self.puck_unknown[i] > 10):
+          if (self.puck_unseen[i] > 10):
             back_up()
           else:
             if (self.steer_point[i][1]) < too_close_threshold[0] and abs(self.steer_point[i][0]) < 3*abs(self.steer_point[i][1]):
-              attack_ball()
+                attack_ball()
             else:
               back_up(-1 * self.steer_point[i][0])
           
-          if (self.rescue[i] > 30):
+          if (self.rescue[i] > 120):
             rescue()
 
           # temp

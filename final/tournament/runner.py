@@ -257,59 +257,73 @@ class Match:
                 a2 = team2_actions[i] if team2_actions is not None and i < len(team2_actions) else {}
                 actions.append(a1)
                 actions.append(a2)
-            # for i in range(len(team1_images)):
-            #     img = team1_images[i]
+            for i in range(len(team1_images)):
+                img = team1_images[i]
                 
-            #     from PIL import Image, ImageDraw
-            #     image = Image.fromarray(img)
+                from PIL import Image, ImageDraw
+                image = Image.fromarray(img)
                 
-            #     # # normalize location
-            #     proj = np.array(team1_state[i]['camera']['projection']).T
-            #     view = np.array(team1_state[i]['camera']['view']).T
-            #     aim_point_world = soccer_state['ball']['location']
-            #     p = proj @ view @ np.array(list(aim_point_world) + [1])
-            #     aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+                # # normalize location
+                proj = np.array(team1_state[i]['camera']['projection']).T
+                view = np.array(team1_state[i]['camera']['view']).T
+                aim_point_world = soccer_state['ball']['location']
+                p = proj @ view @ np.array(list(aim_point_world) + [1])
+                aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
 
-            #     forward_vector = [team1_state[i]['kart']['front'][k] - team1_state[i]['kart']['location'][k] for k in range(3)]
-            #     puck_vector = [aim_point_world[k] - team1_state[i]['kart']['location'][k] for k in range(3)]
-            #     angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
+                forward_vector = [team1_state[i]['kart']['front'][k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+                puck_vector = [aim_point_world[k] - team1_state[i]['kart']['location'][k] for k in range(3)]
+                angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
 
-            #     fill = (0, 0, 0, 0)
-            #     model_fill = (255, 255, 0, 255)
-            #     if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
-            #       fill = (255, 255, 255, 255)
-            #       # model_fill = (0, 0, 0, 0)
-            #       aim_point[0] = 0
-            #       aim_point[1] = 1
+                fill = (0, 0, 0, 0)
+                model_fill = (255, 255, 0, 255)
+                t_fill = (255, 0, 255, 255)
+                if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
+                  fill = (255, 255, 255, 255)
+                  # model_fill = (0, 0, 0, 0)
+                  aim_point[0] = 0
+                  aim_point[1] = 1
                 
-            #     if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
-            #       fill = (255, 0, 255, 255)
-            #       # model_fill = (0, 0, 0, 0)
+                # if ('state' in team1_state[i]['kart'] and team1_state[i]['kart']['state'] == 'chase_ball'):
+                #   fill = (255, 0, 255, 255)
+                  # model_fill = (0, 0, 0, 0)
 
-            #     aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
-            #     aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
+                aim_point[0] = np.clip((aim_point[0] + 1) * 200, 0, 400)
+                aim_point[1] = np.clip((aim_point[1] + 1) * 150, 0, 300)
                 
 
-            #     draw = ImageDraw.Draw(image)
-            #     r = 10
-            #     leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
-            #     rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
-            #     twoPointList = [leftUpPoint, rightDownPoint]
-            #     draw.ellipse(twoPointList, fill=fill)
+                draw = ImageDraw.Draw(image)
+                r = 7
+                leftUpPoint = (aim_point[0]-r, aim_point[1]-r)
+                rightDownPoint = (aim_point[0]+r, aim_point[1]+r)
+                twoPointList = [leftUpPoint, rightDownPoint]
+                draw.ellipse(twoPointList, fill=fill)
 
-            #     model_aim_point = model(TF.to_tensor(img)[None]).squeeze(0).cpu().detach().numpy()
-            #     # draw = ImageDraw.Draw(image)
-            #     # r = 10
-            #     model_aim_point[0] = np.clip((model_aim_point[0] + 1) * 200, 0, 400)
-            #     model_aim_point[1] = np.clip((model_aim_point[1] + 1) * 150, 0, 300)
-            #     leftUpPoint = (model_aim_point[0]-r, model_aim_point[1]-r)
-            #     rightDownPoint = (model_aim_point[0]+r, model_aim_point[1]+r)
-            #     twoPointList = [leftUpPoint, rightDownPoint]
-            #     draw.ellipse(twoPointList, fill=model_fill)
-            #     # print(image)
-            #     # Show the image
-            #     if (not args.record_images):
-            #       team1_images[i] = image
+                if ('target' in team1_state[i]['kart']):
+                  r = 5
+                  draw = ImageDraw.Draw(image)
+                  t = team1_state[i]['kart']['target']
+                  t[0] = np.clip((t[0] + 1) * 200, 0, 400)
+                  t[1] = np.clip((t[1] + 1) * 150, 0, 300)
+                  # print(t)
+                  leftUpPoint = (t[0]-r, t[1]-r)
+                  rightDownPoint = (t[0]+r, t[1]+r)
+                  twoPointList = [leftUpPoint, rightDownPoint]
+                  draw.ellipse(twoPointList, fill= t_fill )
+                  
+
+                # model_aim_point = model(TF.to_tensor(img)[None]).squeeze(0).cpu().detach().numpy()
+                # # draw = ImageDraw.Draw(image)
+                # # r = 10
+                # model_aim_point[0] = np.clip((model_aim_point[0] + 1) * 200, 0, 400)
+                # model_aim_point[1] = np.clip((model_aim_point[1] + 1) * 150, 0, 300)
+                # leftUpPoint = (model_aim_point[0]-r, model_aim_point[1]-r)
+                # rightDownPoint = (model_aim_point[0]+r, model_aim_point[1]+r)
+                # twoPointList = [leftUpPoint, rightDownPoint]
+                # draw.ellipse(twoPointList, fill=model_fill)
+                # print(image)
+                # Show the image
+                if (not args.record_images):
+                  team1_images[i] = image
 
 
             if record_fn:
