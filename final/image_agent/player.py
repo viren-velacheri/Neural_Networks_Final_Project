@@ -14,8 +14,6 @@ class Team:
         self.num_players = None
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.model = load_model().eval().to(self.device)
-        self.goal = None
-        self.puck_height = 0.369
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -37,16 +35,88 @@ class Team:
         self.puck_unknown = [0] * num_players
         self.steer_point = [[0, 0] for i in range(num_players)]
         self.rescue = [0] * num_players
+        self.puck_height = 0.3693891763687134 #empirically discovered
+        self.goal = None
+        self.aim_points = [[0, 0] for i in range(num_players)]
+
         return ['tux'] * num_players
 
     def act(self, player_state, player_image, puck_location):
-        red_goal = torch.tensor([0.0000, -64.5000])
-        blue_goal = torch.tensor([-2.5000e-02,  6.4500e+01])
-        if self.t == 0:
+        # constants; move these...
+        steer_gain=2
+        skid_thresh = 0.5
+        target_vel = 25
+        too_close_threshold = [0, 0.3] 
+        unknown_threshold = 0.9
+        red_goal = np.array([0.0000, -64.5000])
+        blue_goal = np.array([0.0000,  64.5000])
+
+        def set_goal_locations():
           if player_state[0]['kart']['location'][2] < 0:
             self.goal = blue_goal
           else:
             self.goal = red_goal
+
+        def world_to_screen(camera, world_loc):
+          #code adapted from prev hw
+          proj = np.array(camera['projection']).T
+          view = np.array(camera['view']).T
+          big_P = proj @ view 
+          p = big_P @ np.array(list(world_loc) + [1])
+          aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+          return aim_point
+
+        # inverse operation of world_to_screen
+        def screen_to_world(camera, screen_loc):
+          screen_y = screen_loc[1] * -1 #undo multiplication by -1 in world_to_screen
+          screen_x = screen_loc[0] 
+          proj = np.array(camera['projection']).T
+          view = np.array(camera['view']).T
+          big_P = proj @ view # same as in world_to_screen
+          big_P_inverse = np.linalg.inv(big_P) #use inverse matrix to inverse projection
+          world_y = self.puck_height #lucky for us, this is constant; this is what allows us to do this inverse projection
+          distance_from_camera = (big_P_inverse[1][0]* screen_x + big_P_inverse[1][1]* screen_y + big_P_inverse[1][3] - (big_P_inverse[3][0]*screen_x*world_y + big_P_inverse[3][1]*screen_y*world_y + big_P_inverse[3][3]*world_y)) / (big_P_inverse[3][2] * world_y - big_P_inverse[1][2])
+          screen_coordinates = np.array([screen_x, screen_y, distance_from_camera, 1 ])
+          w = big_P_inverse @ screen_coordinates
+          world_coordinates = np.array([w[0] / w[-1], w[1] / w[-1], w[2] / w[-1]])
+          return world_coordinates
+
+        def find_puck(screen_points):
+          best_location = None
+          best_confidence = -999999
+          for i in range(self.num_players):
+            #where does this player think the puck is?
+            if (screen_points[i][1] > unknown_threshold):
+              #not on screen, we have no clue!
+              pass
+            else:
+              #we think we know where the ball is
+              camera = player_state[i]['camera']
+              puck_location = screen_to_world(camera, screen_points[i])
+              confidence = -1 * (screen_points[i][0] ** 2 + screen_points[i][1] ** 2) 
+              if (confidence > best_confidence):
+                best_location = puck_location
+          return best_location
+
+        def set_aim_points(puck_location=None):
+          for i in range(self.num_players):
+            if (puck_location is not None):
+              # cheated ground-truth puck screen location
+              aim_point = world_to_screen(player_state[i]['camera'], puck_location)
+
+              forward_vector = [player_state[i]['kart']['front'][k] - player_state[i]['kart']['location'][k] for k in range(3)]
+              puck_vector = [puck_location[k] - player_state[i]['kart']['location'][k] for k in range(3)]
+              angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
+
+              if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
+                aim_point[0] = 0
+                aim_point[1] = 1
+              
+              self.aim_points[i] = aim_point
+            else:
+              # Model predicted aim point below
+              self.aim_points[i] = self.model(TF.to_tensor(player_image[i])[None].to(self.device)).squeeze(0).cpu().detach().numpy()
+
 
         """
         This function is called once per timestep. You're given a list of player_states and images.
@@ -83,68 +153,45 @@ class Team:
                  steer:        float -1..1 steering angle
         """
         # TODO: Change me. I'm just cruising straight
+        if self.t == 0:
+          set_goal_locations()
 
+        # cheated ground-truth puck world location
+        true_puck_location = puck_location['location']
+
+
+        # don't pass in puck_location to use model
+        set_aim_points(puck_location = true_puck_location)
+
+        projected_puck_location = find_puck(self.aim_points) # this is None if puck offscreen for all players
+
+        # print("Actual coordinates : " + str(true_puck_location))
+        # print("Predicted coordinates : " + str(projected_puck_location))
 
         actions = []
-        for i in range(self.num_players):
-          steer_gain=2
-          skid_thresh = 0.5
-          target_vel = 25
-          too_close_threshold = [0, 0.3]   
+        for i in range(self.num_players):  
           current_vel = np.linalg.norm(player_state[i]['kart']['velocity'])
           action = {}
 
-          # if current_vel <= 1.0 and self.t - self.last_rescue > 30:
-          #   action['rescue'] = True
-          #   self.last_rescue = self.t
-
-          # normalize location
-          proj = np.array(player_state[i]['camera']['projection']).T
-          view = np.array(player_state[i]['camera']['view']).T
-          aim_point_world = puck_location['location']
-          p = proj @ view @ np.array(list(aim_point_world) + [1])
-          aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
-          little_y = aim_point[1] * -1
-          little_x = aim_point[0]
-          big_P = proj @ view
-          big_P_inverse = np.linalg.inv(big_P)
-          big_Y = aim_point_world[1]
-          little_z = (big_P_inverse[1][0]* little_x + big_P_inverse[1][1]* little_y + big_P_inverse[1][3] - (big_P_inverse[3][0]*little_x*big_Y + big_P_inverse[3][1]*little_y*big_Y + big_P_inverse[3][3]*big_Y)) / (big_P_inverse[3][2] * big_Y - big_P_inverse[1][2])
-          screen_coordinates = np.array([little_x, little_y, little_z, 1 ])
-          w = big_P_inverse @ screen_coordinates
-          world_coordinates = np.array([w[0] / w[-1], w[1] / w[-1], w[2] / w[-1]])
-
+          aim_point = self.aim_points[i]
 
           # features of ego-vehicle
-          kart_front = torch.tensor(pstate['kart']['front'], dtype=torch.float32)[[0, 2]]
-          kart_center = torch.tensor(pstate['kart']['location'], dtype=torch.float32)[[0, 2]]
+          kart_front = torch.tensor(player_state[i]['kart']['front'], dtype=torch.float32)[[0, 2]]
+          kart_center = torch.tensor(player_state[i]['kart']['location'], dtype=torch.float32)[[0, 2]]
           kart_direction = (kart_front-kart_center) / torch.norm(kart_front-kart_center)
           kart_angle = torch.atan2(kart_direction[1], kart_direction[0])
 
-          # features of soccer 
-          puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
-          kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
-          kart_to_puck_angle = torch.atan2(kart_to_puck_direction[1], kart_to_puck_direction[0]) 
-          kart_to_puck_angle_difference = limit_period((kart_angle - kart_to_puck_angle)/np.pi)
+          # # features of soccer 
+          # puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
+          # kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
+          # kart_to_puck_angle = torch.atan2(kart_to_puck_direction[1], kart_to_puck_direction[0]) 
+          # kart_to_puck_angle_difference = limit_period((kart_angle - kart_to_puck_angle)/np.pi)
 
-          # features of score-line 
-          goal_line_center = torch.tensor(soccer_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
-          kart_to_goal_line = (goal_line_center-puck_center) / torch.norm(goal_line_center-puck_center)
-          kart_to_goal_line_angle = torch.atan2(kart_to_goal_line[1], kart_to_goal_line[0]) 
-          kart_to_goal_line_angle_difference = limit_period((kart_angle - kart_to_goal_line_angle)/np.pi)
-
-          # print("Actual coordinates : " + str(aim_point_world))
-          # print("Predicted coordinates : " + str(world_coordinates))
-
-          forward_vector = [player_state[i]['kart']['front'][k] - player_state[i]['kart']['location'][k] for k in range(3)]
-          puck_vector = [aim_point_world[k] - player_state[i]['kart']['location'][k] for k in range(3)]
-          angle = np.arctan2(forward_vector[-1]*puck_vector[0] - forward_vector[0]*puck_vector[-1], forward_vector[0]*puck_vector[0] + forward_vector[-1]*puck_vector[-1])
-
-          if (abs(aim_point[0]) > 1 or abs(aim_point[1]) > 1 or abs(angle) > np.pi / 2):
-            aim_point[0] = 0
-            aim_point[1] = 1
-          # Model predicted aim point below
-          aim_point = self.model(TF.to_tensor(player_image[i])[None].to(self.device)).squeeze(0).cpu().detach().numpy()
+          # # features of score-line 
+          # goal_line_center = torch.tensor(soccer_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+          # kart_to_goal_line = (goal_line_center-puck_center) / torch.norm(goal_line_center-puck_center)
+          # kart_to_goal_line_angle = torch.atan2(kart_to_goal_line[1], kart_to_goal_line[0]) 
+          # kart_to_goal_line_angle_difference = limit_period((kart_angle - kart_to_goal_line_angle)/np.pi)
           
           if (aim_point[1] > 0.5):
             self.puck_unknown[i] += 1
@@ -161,29 +208,8 @@ class Team:
           def chase_ball():
             player_state[i]['kart']['state'] = 'chase_ball'
             steer_angle = steer_gain * self.steer_point[i][0]
-            # print(current_vel)
-            # if current_vel <= 10.5:
-            #   self.low_speeds[i] += 1
-            # else:
-            #   self.low_speeds[i] = 0
 
-            # if aim_point[0] < -1 or aim_point[0] > 1 or aim_point[1] > 1 or aim_point[1] < -1:
-            #   action['brake'] = True
-            #   current_vel = float('inf')
-            #   steer_angle = -1 if steer_angle > 0 else 1
-
-            # if self.low_speeds[i] > 15 and self.low_speeds[i] < 120:
-            #   action['brake'] = True
-            #   current_vel = float('inf')
-            #   steer_angle = -1 if steer_angle > 0 else 1
-
-            # Compute accelerate
-            # if current_vel <= 1.3:
-            #   action['brake'] = True
-            #   current_vel = float('inf')
-            #   steer_angle = 1
-            #   print(aim_point)
-
+            # Compute acceleration
             action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
 
             # Compute steering
@@ -206,8 +232,6 @@ class Team:
           def rescue():
             player_state[i]['kart']['state'] = 'rescue'
             action['rescue'] = True
-
-
 
           if (self.puck_unknown[i] > 10):
             back_up()
