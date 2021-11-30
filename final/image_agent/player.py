@@ -113,8 +113,28 @@ class Team:
           screen_coordinates = np.array([little_x, little_y, little_z, 1 ])
           w = big_P_inverse @ screen_coordinates
           world_coordinates = np.array([w[0] / w[-1], w[1] / w[-1], w[2] / w[-1]])
-          print("Actual coordinates : " + str(aim_point_world))
-          print("Predicted coordinates : " + str(world_coordinates))
+
+
+          # features of ego-vehicle
+          kart_front = torch.tensor(pstate['kart']['front'], dtype=torch.float32)[[0, 2]]
+          kart_center = torch.tensor(pstate['kart']['location'], dtype=torch.float32)[[0, 2]]
+          kart_direction = (kart_front-kart_center) / torch.norm(kart_front-kart_center)
+          kart_angle = torch.atan2(kart_direction[1], kart_direction[0])
+
+          # features of soccer 
+          puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
+          kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
+          kart_to_puck_angle = torch.atan2(kart_to_puck_direction[1], kart_to_puck_direction[0]) 
+          kart_to_puck_angle_difference = limit_period((kart_angle - kart_to_puck_angle)/np.pi)
+
+          # features of score-line 
+          goal_line_center = torch.tensor(soccer_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+          kart_to_goal_line = (goal_line_center-puck_center) / torch.norm(goal_line_center-puck_center)
+          kart_to_goal_line_angle = torch.atan2(kart_to_goal_line[1], kart_to_goal_line[0]) 
+          kart_to_goal_line_angle_difference = limit_period((kart_angle - kart_to_goal_line_angle)/np.pi)
+
+          # print("Actual coordinates : " + str(aim_point_world))
+          # print("Predicted coordinates : " + str(world_coordinates))
 
           forward_vector = [player_state[i]['kart']['front'][k] - player_state[i]['kart']['location'][k] for k in range(3)]
           puck_vector = [aim_point_world[k] - player_state[i]['kart']['location'][k] for k in range(3)]
