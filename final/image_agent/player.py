@@ -14,6 +14,8 @@ class Team:
         self.num_players = None
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.model = load_model().eval().to(self.device)
+        self.goal = None
+        self.puck_height = 0.369
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -38,6 +40,14 @@ class Team:
         return ['tux'] * num_players
 
     def act(self, player_state, player_image, puck_location):
+        red_goal = torch.tensor([0.0000, -64.5000])
+        blue_goal = torch.tensor([-2.5000e-02,  6.4500e+01])
+        if self.t == 0:
+          if player_state[0]['kart']['location'][2] < 0:
+            self.goal = blue_goal
+          else:
+            self.goal = red_goal
+
         """
         This function is called once per timestep. You're given a list of player_states and images.
 
@@ -73,6 +83,8 @@ class Team:
                  steer:        float -1..1 steering angle
         """
         # TODO: Change me. I'm just cruising straight
+
+
         actions = []
         for i in range(self.num_players):
           steer_gain=2
@@ -92,6 +104,17 @@ class Team:
           aim_point_world = puck_location['location']
           p = proj @ view @ np.array(list(aim_point_world) + [1])
           aim_point = np.array([p[0] / p[-1], -p[1] / p[-1]])
+          little_y = aim_point[1] * -1
+          little_x = aim_point[0]
+          big_P = proj @ view
+          big_P_inverse = np.linalg.inv(big_P)
+          big_Y = aim_point_world[1]
+          little_z = (big_P_inverse[1][0]* little_x + big_P_inverse[1][1]* little_y + big_P_inverse[1][3] - (big_P_inverse[3][0]*little_x*big_Y + big_P_inverse[3][1]*little_y*big_Y + big_P_inverse[3][3]*big_Y)) / (big_P_inverse[3][2] * big_Y - big_P_inverse[1][2])
+          screen_coordinates = np.array([little_x, little_y, little_z, 1 ])
+          w = big_P_inverse @ screen_coordinates
+          world_coordinates = np.array([w[0] / w[-1], w[1] / w[-1], w[2] / w[-1]])
+          print("Actual coordinates : " + str(aim_point_world))
+          print("Predicted coordinates : " + str(world_coordinates))
 
           forward_vector = [player_state[i]['kart']['front'][k] - player_state[i]['kart']['location'][k] for k in range(3)]
           puck_vector = [aim_point_world[k] - player_state[i]['kart']['location'][k] for k in range(3)]

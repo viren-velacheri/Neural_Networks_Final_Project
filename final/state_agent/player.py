@@ -1,4 +1,4 @@
-
+import torch
 class Team:
     agent_type = 'state'
 
@@ -58,4 +58,8 @@ class Team:
                  steer:        float -1..1 steering angle
         """
         # TODO: Change me. I'm just cruising straight
+        goal_line_center = torch.tensor(soccer_state['goal_line'][0], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+        goal_line_center2 = torch.tensor(soccer_state['goal_line'][1], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+        print("First goal line " + str(goal_line_center))
+        print("Second goal line " + str(goal_line_center2))
         return [dict(acceleration=1, steer=0)] * self.num_players
