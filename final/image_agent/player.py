@@ -39,18 +39,25 @@ class Team:
         self.goal = None
         self.aim_points = [[0, 0] for i in range(num_players)]
         self.last_known_puck_location = np.array([0, 0, 0])
+        self.last_kart_loc = [np.array([0,0,0]) for i in range(num_players)]
+        self.kick_off = 0
+        self.last_puck_location = np.array([0,0,0])
+        self.roles = ['defender', 'attacker']
 
         return ['tux'] * num_players
 
     def act(self, player_state, player_image, puck_location):
         # constants; move these...
-        steer_gain=2
+        steer_gain= 2.5
         skid_thresh = 0.5
-        target_vel = 25
-        too_close_threshold = [0, 0.3] 
+        target_vel = 20
+        too_close_threshold = 0.1
         unknown_threshold = 0.9
         red_goal = np.array([0.0000, -64.5000])
         blue_goal = np.array([0.0000,  64.5000])
+        teleport_threshold = 5
+        velocity_threshold = 15
+        puck_velocity_multiplier = 20
 
         def set_goal_locations():
           if player_state[0]['kart']['location'][2] < 0:
@@ -156,7 +163,7 @@ class Team:
         """
         # TODO: Change me. I'm just cruising straight
         if self.t == 0:
-          set_goal_locations()
+          set_goal_locations()        
 
         # cheated ground-truth puck world location
         true_puck_location = puck_location['location']
@@ -168,12 +175,24 @@ class Team:
         if (projected_puck_location is not None):
           self.last_known_puck_location = projected_puck_location
 
+
+        puck_movement_vector = self.last_known_puck_location - self.last_puck_location
+        self.last_puck_location = self.last_known_puck_location
+
         # print("Actual coordinates : " + str(true_puck_location))
         # print("Predicted coordinates : " + str(projected_puck_location))
+
+        self.kick_off = max(0, self.kick_off - 1)
+
+        for i in range(self.num_players):
+          if np.linalg.norm(self.last_kart_loc[i] - np.array(player_state[i]['kart']['location'])) > teleport_threshold:
+            self.kick_off = 30
+          self.last_kart_loc[i] = np.array(player_state[i]['kart']['location'])
 
         actions = []
         for i in range(self.num_players):  
           current_vel = np.linalg.norm(player_state[i]['kart']['velocity'])
+          steer_gain = 4
           action = {}
 
           aim_point = self.aim_points[i]
@@ -187,14 +206,34 @@ class Team:
 
           puck_center = np.array(puck_coordinates[[0,2]])
 
-          goal_to_puck_direction = (puck_center - self.goal) / np.linalg.norm((puck_center - self.goal))
+          goal_to_puck = (puck_center - self.goal)
+          goal_to_puck_distance = np.linalg.norm(goal_to_puck)
+          goal_to_puck_direction = goal_to_puck / goal_to_puck_distance
+          goal_to_puck_angle = np.arctan2(goal_to_puck_direction[1], goal_to_puck_direction[0])
           
           kart_to_puck = (puck_center - kart_center)
           kart_to_puck_distance = np.linalg.norm(kart_to_puck)
           kart_to_puck_direction = kart_to_puck / kart_to_puck_distance
+          kart_to_puck_angle = np.arctan2(kart_to_puck_direction[1], kart_to_puck_direction[0])
 
-          goal_to_kart_direction = (kart_center - self.goal) / np.linalg.norm((puck_center - self.goal))
+          goal_to_kart = (kart_center - self.goal)
+          goal_to_kart_distance = np.linalg.norm(goal_to_kart)
+          goal_to_kart_direction = goal_to_kart / goal_to_kart_distance
+          goal_to_kart_angle = np.arctan2(goal_to_kart_direction[1], goal_to_kart_direction[0])
 
+          own_goal = self.goal * -1
+          own_goal_to_kart = (kart_center - own_goal)
+          own_goal_to_kart_distance = np.linalg.norm(own_goal_to_kart)
+          own_goal_to_kart_direction = own_goal_to_kart / own_goal_to_kart_distance
+          own_goal_to_kart_angle = np.arctan2(own_goal_to_kart_direction[1], own_goal_to_kart_direction[0])
+
+          own_goal_to_puck = (puck_center - own_goal)
+          own_goal_to_puck_distance = np.linalg.norm(own_goal_to_puck)
+          own_goal_to_puck_direction = own_goal_to_puck / own_goal_to_puck_distance
+          own_goal_to_puck_angle = np.arctan2(own_goal_to_puck_direction[1], own_goal_to_puck_direction[0])
+          
+          puck_movement = puck_movement_vector[[0,2]] * 10
+          puck_movement_direction = puck_movement / np.linalg.norm(puck_movement)
           # # features of soccer 
           # puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
           # kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
@@ -220,20 +259,26 @@ class Team:
             self.rescue[i] = 0
 
           def attack_ball():
-            def activation(distance, angle):
+            def activation(distance, angle, velocity):
               abs_angle = abs(angle)
-              d = 1
+              d = 15
               adjusted_distance = distance - d
-              b = 0.1
-              w1 = 0.15
-              w2 = 0
-              return b + w1 * distance + w2 * abs_angle
+              b = 0.5
+              w1 = 0.25
+              w2 = 0.35
+              w3 = 0.15
+              # b = 0
+              # w1 = 0.5
+              # w2 = 0
+              # w3 = 0
+              return b + (w1 * distance + w2 * adjusted_distance + w3 * abs_angle) * current_vel/target_vel
 
-            target = puck_center + goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(goal_to_puck_direction, goal_to_puck_direction))
+            target = puck_center + goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(-1 * goal_to_puck_direction, kart_to_puck_direction), current_vel)
             target_coords = np.array([target[0], self.puck_height, target[1]])
 
             screen_target = world_to_screen(player_state[i]['camera'], target_coords)
-            
+            if (kart_to_puck_distance < 12.5):
+              steer_gain = 50
             chase_point(screen_target)
 
             player_state[i]['kart']['state'] = 'attack_ball'
@@ -247,7 +292,7 @@ class Team:
 
 
           def chase_point(target_point):
-            steer_angle = steer_gain * target_point[0]
+            steer_angle = target_point[0]
 
             # Compute acceleration
             action['acceleration'] = 1.0 if current_vel < target_vel else 0.0
@@ -282,7 +327,7 @@ class Team:
             return
 
           def sleep():
-            action['acceleration'] = 0.01
+            action['acceleration'] = 0.001 #so we dont reverse
             if (current_vel >= 0):
               action['brake'] = True
             else:
@@ -292,20 +337,98 @@ class Team:
             player_state[i]['kart']['state'] = 'sleep'
             return
 
+          def kick_off():
+            target_vel = 999
+
+            chase_ball()
+            
+            player_state[i]['kart']['state'] = 'kick_off'
+            return
+
+          def block_puck():
+            target = puck_center + puck_movement
+            target_coords = np.array([target[0], self.puck_height, target[1]])
+
+            screen_target = world_to_screen(player_state[i]['camera'], target_coords)
+            if (kart_to_puck_distance < 12.5):
+              steer_gain = 15
+            chase_point(screen_target)
+
+            player_state[i]['kart']['state'] = 'block_puck'
+            return
+
+          def defend_ball():
+            def activation(distance, angle, velocity):
+              abs_angle = abs(angle)
+              d = 0
+              adjusted_distance = distance - d
+              b = 0.5
+              w1 = 0.15
+              w2 = 0
+              w3 = 0
+              return b + (w1 * distance + w2 * adjusted_distance + w3 * abs_angle) * current_vel/target_vel
+
+            target = puck_center + puck_movement / puck_velocity_multiplier - own_goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(-1 * goal_to_puck_direction, kart_to_puck_direction), current_vel)
+            target_coords = np.array([target[0], self.puck_height, target[1]])
+
+            screen_target = world_to_screen(player_state[i]['camera'], target_coords)
+            if (kart_to_puck_distance < 12.5):
+              steer_gain = 15
+            chase_point(screen_target)
+
+            player_state[i]['kart']['state'] = 'defend_ball'
+            return
+
+          # if (i != 0):
+          #   print("kart_angle : " + str(kart_angle))
+          #   print("own_goal_to_kart_angle : " + str(own_goal_to_kart_angle))
+
+          # def back_to_goal():
+
+          #   steer_angle = 1 * kart_angle - own_goal_to_kart_angle
+          #   if (own_goal_to_kart_distance > 3):
+          #     action['acceleration'] = 0.0
+          #   else:
+          #     action['acceleration'] = 0.01
+          #   action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
+          #   action['brake'] = True
+
+          #   player_state[i]['kart']['state'] = 'back_to_goal'
+
+          # State Selection
           if (self.puck_unseen[i] > 10):
             back_up()
           else:
-            if (self.steer_point[i][1]) < too_close_threshold[0] and abs(self.steer_point[i][0]) < 3*abs(self.steer_point[i][1]):
+            if (self.steer_point[i][1]) < too_close_threshold and abs(self.steer_point[i][0]) < 3*(too_close_threshold - self.steer_point[i][1]):
+              if (self.kick_off > 0):
+                # scored recently, puck could be in the air, so projection is unreliable
+                if (i == 0):
+                  self.roles[i] = 'defender'
+                else:
+                  kick_off()
+              else:
                 attack_ball()
             else:
               back_up(-1 * self.steer_point[i][0])
-          
-          if (self.rescue[i] > 120):
-            rescue()
+
+          # if (goal_to_puck[1] - goal_to_kart[1] > 20):
+          #   #we're too far past the puck to realistically play it
+          #   back_to_goal()
+
+          # if (self.rescue[i] > 120 and self.kick_off <= 0):
+          #   rescue()
 
           # temp
-          if (i != 0):
-            sleep()
+          if (self.roles[i] == 'defender'):
+            if own_goal_to_puck_distance < 40 or np.linalg.norm(own_goal_to_puck + puck_movement) < 45:
+              block_puck()
+            else:
+              if (abs(kart_center[1]) < abs(own_goal[1])-5):
+                back_up()
+              else:
+                sleep()
+            if (own_goal_to_kart_distance > 35):
+              self.roles[i] = 'attacker'
 
           actions.append(action)
           self.t += 1
