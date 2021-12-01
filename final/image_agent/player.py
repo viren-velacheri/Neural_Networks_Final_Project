@@ -303,7 +303,7 @@ class Team:
             action['steer'] = np.clip(steer_angle * steer_gain, -1, 1)
 
             # Compute skidding
-            if abs(steer_angle) > skid_thresh:
+            if abs(steer_angle * steer_gain) > skid_thresh:
               action['drift'] = True
             else:
               action['drift'] = False
@@ -370,7 +370,7 @@ class Team:
               w3 = 0
               return b + (w1 * distance + w2 * adjusted_distance + w3 * abs_angle) * current_vel/target_vel
 
-            target = puck_center + puck_movement / puck_velocity_multiplier - own_goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(-1 * goal_to_puck_direction, kart_to_puck_direction), current_vel)
+            target = puck_center + puck_movement - own_goal_to_puck_direction * activation(kart_to_puck_distance, np.arctan2(-1 * goal_to_puck_direction, kart_to_puck_direction), current_vel)
             target_coords = np.array([target[0], self.puck_height, target[1]])
 
             screen_target = world_to_screen(player_state[i]['camera'], target_coords)
@@ -472,7 +472,7 @@ class Team:
           # temp
           if (self.roles[i] == 'defender'):
             if own_goal_to_puck_distance < 40 or np.linalg.norm(own_goal_to_puck + puck_movement) < 45:
-              block_puck()
+              defend_ball()
             else:
               if (abs(kart_center[1]) < abs(own_goal[1])-5):
                 back_up()
