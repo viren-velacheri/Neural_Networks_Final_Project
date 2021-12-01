@@ -43,6 +43,7 @@ class Team:
         self.kick_off = 0
         self.last_puck_location = np.array([0,0,0])
         self.roles = ['defender', 'attacker']
+        self.halt_attacker = False
 
         return ['tux'] * num_players
 
@@ -58,6 +59,7 @@ class Team:
         teleport_threshold = 5
         velocity_threshold = 15
         puck_velocity_multiplier = 20
+        steps_per_second = 1
 
         def set_goal_locations():
           if player_state[0]['kart']['location'][2] < 0:
@@ -232,7 +234,7 @@ class Team:
           own_goal_to_puck_direction = own_goal_to_puck / own_goal_to_puck_distance
           own_goal_to_puck_angle = np.arctan2(own_goal_to_puck_direction[1], own_goal_to_puck_direction[0])
           
-          puck_movement = puck_movement_vector[[0,2]] * 10
+          puck_movement = puck_movement_vector[[0,2]]
           puck_movement_direction = puck_movement / np.linalg.norm(puck_movement)
           # # features of soccer 
           # puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
@@ -379,6 +381,52 @@ class Team:
             player_state[i]['kart']['state'] = 'defend_ball'
             return
 
+
+          def prowl():
+            reverse = False
+            target = [0, 0]
+            distance_to_target = np.linalg.norm(target - kart_center)
+
+            target_vel = min(distance_to_target, 20)
+
+            if (current_vel > target_vel):
+              action['brake'] = True
+              acceleration = 0.05
+            else:
+              acceleration = (target_vel - current_vel) / target_vel
+            
+            if (distance_to_target < 10):
+              target = kart_center + goal_to_kart_direction * -20
+            elif (goal_to_kart_distance < np.linalg.norm(target - self.goal)):
+              target = kart_center + goal_to_kart_direction * -20
+              reverse = True
+
+            if (reverse):
+              action['brake'] = True
+              acceleration = 0
+            action['acceleration'] = acceleration
+
+            target_coords = np.array([target[0], self.puck_height, target[1]])
+            screen_target = world_to_screen(player_state[i]['camera'], target_coords)
+            action['steer'] = np.clip(screen_target[0] * steer_gain * (-1 if reverse else 1), -1, 1)
+
+            player_state[i]['kart']['state'] = 'prowl'
+            return
+
+          def shoot_ball():
+            target = puck_center + puck_movement * (kart_to_puck_distance / 20) * steps_per_second + goal_to_puck_direction * 0.4
+            target_coords = np.array([target[0], self.puck_height, target[1]])
+            screen_target = world_to_screen(player_state[i]['camera'], target_coords)
+
+            
+            target_vel = 40
+
+            chase_point(screen_target)
+
+            player_state[i]['kart']['state'] = 'shoot_ball'
+            return
+
+        
           # if (i != 0):
           #   print("kart_angle : " + str(kart_angle))
           #   print("own_goal_to_kart_angle : " + str(own_goal_to_kart_angle))
@@ -396,20 +444,23 @@ class Team:
           #   player_state[i]['kart']['state'] = 'back_to_goal'
 
           # State Selection
-          if (self.puck_unseen[i] > 10):
-            back_up()
-          else:
-            if (self.steer_point[i][1]) < too_close_threshold and abs(self.steer_point[i][0]) < 3*(too_close_threshold - self.steer_point[i][1]):
-              if (self.kick_off > 0):
-                # scored recently, puck could be in the air, so projection is unreliable
-                if (i == 0):
-                  self.roles[i] = 'defender'
-                else:
-                  kick_off()
-              else:
-                attack_ball()
+          if (self.roles[i] == 'attacker'):
+            if (self.puck_unseen[i] > 10):
+              back_up()
             else:
-              back_up(-1 * self.steer_point[i][0])
+              if (self.steer_point[i][1]) < too_close_threshold and abs(self.steer_point[i][0]) < 3*(too_close_threshold - self.steer_point[i][1]):
+                if (self.kick_off > 0):
+                  # scored recently, puck could be in the air, so projection is unreliable
+                  if (i == 0):
+                    self.roles[i] = 'defender'
+                  else:
+                    kick_off()
+                else:
+                  attack_ball()
+              else:
+                back_up(-1 * self.steer_point[i][0])
+            if (self.halt_attacker):
+              back_up()
 
           # if (goal_to_puck[1] - goal_to_kart[1] > 20):
           #   #we're too far past the puck to realistically play it
@@ -429,6 +480,15 @@ class Team:
                 sleep()
             if (own_goal_to_kart_distance > 35):
               self.roles[i] = 'attacker'
+          
+          if (self.roles[i] == 'prowler'):
+            predicted_puck = puck_center + puck_movement * kart_to_puck_distance / 20 * steps_per_second
+            if (abs(predicted_puck[0]) < 15 and goal_to_puck_distance < 40):
+              shoot_ball()
+              self.halt_attacker = True
+            else:
+              prowl()
+              self.halt_attacker = False
 
           actions.append(action)
           self.t += 1
