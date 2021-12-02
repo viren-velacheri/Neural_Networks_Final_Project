@@ -31,7 +31,7 @@ def train(args):
     transform = eval(args.transform, {k: v for k, v in inspect.getmembers(dense_transforms) if inspect.isclass(v)})
 
     train_data = load_data('data', transform=transform, num_workers=args.num_workers)
-
+    print("ALL DATA LOADED")
     global_step = 0
     for epoch in range(args.num_epoch):
         model.train()
