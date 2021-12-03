@@ -97,6 +97,25 @@ class VideoRecorder(BaseRecorder):
             self._writer.close()
 
 
+class DataRecorder(BaseRecorder):
+    def __init__(self, record_images=False):
+        self._record_images = record_images
+        self._data = []
+
+    def __call__(self, team1_state, team2_state, soccer_state, actions, team1_images=None, team2_images=None):
+        data = dict(team1_state=team1_state, team2_state=team2_state, soccer_state=soccer_state, actions=actions)
+        if self._record_images:
+            data['team1_images'] = team1_images
+            data['team2_images'] = team2_images
+        self._data.append(data)
+
+    def data(self):
+        return self._data
+
+    def reset(self):
+        self._data = []
+
+
 class StateRecorder(BaseRecorder):
     def __init__(self, state_action_file, record_images=False):
         self._record_images = record_images
@@ -124,4 +143,3 @@ def load_recording(recording):
                 yield load(f)
             except EOFError:
                 break
-
