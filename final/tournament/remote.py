@@ -17,6 +17,10 @@ try:
         pass
 
     @ray.remote
+    class RayDataRecorder(utils.DataRecorder):
+        pass
+
+    @ray.remote
     class RayVideoRecorder(utils.VideoRecorder):
         pass
 
