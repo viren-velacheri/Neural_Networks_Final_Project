@@ -81,6 +81,7 @@ class Team:
       self.halt_attacker = False
       self.lost_puck = True
       self.time_sum = 0
+      self.model_time_sum = 0
 
       return ['sara_the_racer'] * num_players
 
@@ -125,14 +126,12 @@ class Team:
             #we think we know where the ball is
             camera = player_state[i]['camera']
             puck_location = screen_to_world(camera, screen_points[i])
-            # could probably use a smarter "confidence" function
-            confidence = -1 * (screen_points[i][0] ** 2 + screen_points[i][1] ** 2) 
-            if (confidence > best_confidence):
-              best_location = puck_location
+            return puck_location
         return best_location
 
       # sets the puck's screen location for both agents
       def set_aim_points(puck_location=None):
+        time_model_start = time.time()
         for i in range(self.num_players):
           if (puck_location is not None):
             # cheated ground-truth puck screen location
@@ -150,12 +149,17 @@ class Team:
           else:
             # Model predicted aim point below
             self.aim_points[i] = self.model(TF.to_tensor(player_image[i])[None].to(self.device)).squeeze(0).cpu().detach().numpy()
+          if (self.aim_points[i][1] < unknown_threshold):
+            # We think we know where the ball is; no need for other agent to look for it
+            break
+        time_model_end = time.time()
+        return (time_model_end - time_model_start) * 1000
 
       # cheated ground-truth puck world location
       # true_puck_location = puck_location['location']
 
       # don't pass in puck_location to use model
-      set_aim_points(None)
+      model_time_diff = set_aim_points(None)
 
       projected_puck_location = find_puck(self.aim_points) # this is None if puck offscreen for all players
       if (projected_puck_location is not None):
@@ -175,9 +179,13 @@ class Team:
       end_time = time.time()
       act_time = (end_time - start_time) * 1000
       self.time_sum += act_time
-      if (self.t % 400 == 399):
-        print("at t=" + str(self.t) + ", 400-step avg act_time (ms) = " + str(self.time_sum / 400))
+      self.model_time_sum += model_time_diff
+      print_interval = 400
+      if (self.t % print_interval == (print_interval - 1)):
+        print("at t=" + str(self.t) + ", " + str(print_interval) + "-step avg act_time (ms) = " + str(self.time_sum / print_interval))
+        print("at t=" + str(self.t) + ", " + str(print_interval) + "-step avg model_time (ms) = " + str(self.model_time_sum / print_interval))
         self.time_sum = 0
+        self.model_time_sum = 0
       self.t += 1
       return actions
 
