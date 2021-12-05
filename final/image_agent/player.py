@@ -3,6 +3,7 @@ from image_agent.planner import load_model
 import torchvision.transforms.functional as TF
 import torch
 from os import path
+import time
 
 def limit_period(angle):
   # turn angle into -1 to 1 
@@ -79,10 +80,12 @@ class Team:
       self.use_jurgen = [False, True] + [False] * (num_players - 2)
       self.halt_attacker = False
       self.lost_puck = True
+      self.time_sum = 0
 
       return ['sara_the_racer'] * num_players
 
-    def act(self, player_state, player_image, puck_location):
+    def act(self, player_state, player_image):
+      start_time = time.time()
       unknown_threshold = 0.9
 
       def world_to_screen(camera, world_loc):
@@ -149,10 +152,10 @@ class Team:
             self.aim_points[i] = self.model(TF.to_tensor(player_image[i])[None].to(self.device)).squeeze(0).cpu().detach().numpy()
 
       # cheated ground-truth puck world location
-      true_puck_location = puck_location['location']
+      # true_puck_location = puck_location['location']
 
       # don't pass in puck_location to use model
-      set_aim_points(puck_location = true_puck_location)
+      set_aim_points(None)
 
       projected_puck_location = find_puck(self.aim_points) # this is None if puck offscreen for all players
       if (projected_puck_location is not None):
@@ -161,13 +164,22 @@ class Team:
       else:
         self.lost_puck = True
 
+      actions = []
       if (self.lost_puck or not any(self.use_jurgen)):
-        return self.act_hand_made(player_state, player_image, puck_location)
+        actions = self.act_hand_made(player_state, player_image, None)
       else:
-        jurgen_actions = self.act_jurgen(player_state, player_image, puck_location)  
-        manual_actions = self.act_hand_made(player_state, player_image, puck_location)
+        jurgen_actions = self.act_jurgen(player_state, player_image, projected_puck_location)  
+        manual_actions = self.act_hand_made(player_state, player_image, projected_puck_location)
 
-        return [jurgen_actions[i] if self.use_jurgen[i] else manual_actions[i] for i in range(self.num_players)]
+        actions = [jurgen_actions[i] if self.use_jurgen[i] else manual_actions[i] for i in range(self.num_players)]
+      end_time = time.time()
+      act_time = (end_time - start_time) * 1000
+      self.time_sum += act_time
+      if (self.t % 400 == 399):
+        print("at t=" + str(self.t) + ", 400-step avg act_time (ms) = " + str(self.time_sum / 400))
+        self.time_sum = 0
+      self.t += 1
+      return actions
 
     def act_jurgen(self, player_state, player_image, puck_location):
       actions = [] 
@@ -365,7 +377,7 @@ class Team:
           own_goal_to_puck_angle = np.arctan2(own_goal_to_puck_direction[1], own_goal_to_puck_direction[0])
           
           puck_movement = puck_movement_vector[[0,2]]
-          puck_movement_direction = puck_movement / np.linalg.norm(puck_movement)
+          # puck_movement_direction = puck_movement / np.linalg.norm(puck_movement)
           # # features of soccer 
           # puck_center = torch.tensor(soccer_state['ball']['location'], dtype=torch.float32)[[0, 2]]
           # kart_to_puck_direction = (puck_center - kart_center) / torch.norm(puck_center-kart_center)
@@ -621,6 +633,5 @@ class Team:
               self.halt_attacker = False
 
           actions.append(action)
-          self.t += 1
         # print(self.low_speeds)
         return actions
