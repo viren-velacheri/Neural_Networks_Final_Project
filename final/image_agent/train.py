@@ -33,6 +33,7 @@ def train(args):
     train_data = load_data('data', transform=transform, num_workers=args.num_workers)
     print("ALL DATA LOADED")
     global_step = 0
+    avg_loss = None
     for epoch in range(args.num_epoch):
         model.train()
         losses = []
@@ -57,9 +58,9 @@ def train(args):
         avg_loss = np.mean(losses)
         if train_logger is None:
             print('epoch %-3d \t loss = %0.3f' % (epoch, avg_loss))
-        save_model(model)
+        save_model(model, epoch, avg_loss)
 
-    save_model(model)
+    save_model(model, epoch, avg_loss)
 
 def log(logger, img, label, pred, global_step):
     import matplotlib.pyplot as plt

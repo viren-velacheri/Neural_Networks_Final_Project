@@ -40,11 +40,12 @@ class Planner(torch.nn.Module):
         # return self.classifier(x.mean(dim=[-2, -1]))
 
 
-def save_model(model):
+def save_model(model, epoch, loss):
     from torch import save
     from os import path
     if isinstance(model, Planner):
-        return save(model.state_dict(), path.join(path.dirname(path.abspath(__file__)), 'planner.th'))
+        file_name = "epoch_" + str(epoch) + "_loss_" + str(loss) + ".th"
+        return save(model.state_dict(), path.join(path.dirname(path.abspath(__file__)), file_name))
     raise ValueError("model type '%s' not supported!" % str(type(model)))
 
 
